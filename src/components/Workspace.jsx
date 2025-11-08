@@ -1,57 +1,238 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Settings, HelpCircle, History, Mic, MicOff, Pause, Square, Play, Gauge, Cpu, Rocket, Check, X, Camera, CameraOff } from 'lucide-react';
-import StarfieldBackground from './StarfieldBackground';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Settings, History, HelpCircle, Mic, Pause, Square } from 'lucide-react';
+import Starfield from './Starfield';
+import ReflectionPanel from './ReflectionPanel';
+import HelpPanel from './HelpPanel';
 
-function TopBar({ onOpenHelp, onOpenSettings, onOpenHistory }) {
+export default function Workspace() {
+  const [listening, setListening] = useState(false);
+  const [simMode, setSimMode] = useState(true);
+  const [rulesOnly, setRulesOnly] = useState(false);
+  const [cpuThrottle, setCpuThrottle] = useState(0.6);
+  const [audioOnly, setAudioOnly] = useState(false);
+  const [hudCue, setHudCue] = useState(null);
+  const [showReflection, setShowReflection] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [medianLatency, setMedianLatency] = useState(320);
+  const [talkRatio, setTalkRatio] = useState(0.62);
+  const [acceptPct, setAcceptPct] = useState(0.74);
+
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const cueTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!audioOnly) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(s => {
+        streamRef.current = s;
+        if (videoRef.current) {
+          videoRef.current.srcObject = s;
+        }
+      }).catch(() => setAudioOnly(true));
+    }
+  }, [audioOnly]);
+
+  useEffect(() => {
+    if (!listening) return;
+    cueTimerRef.current = setInterval(() => {
+      const cues = ['Slow slightly', 'Lower volume', 'Turn toward camera'];
+      const c = cues[Math.floor(Math.random() * cues.length)];
+      setHudCue({ id: Date.now(), text: c });
+      if (simMode) {
+        setMedianLatency(v => Math.max(180, Math.min(600, v + (Math.random() - 0.5) * 30)));
+        setTalkRatio(v => Math.max(0.3, Math.min(0.8, v + (Math.random() - 0.5) * 0.02)));
+      }
+    }, 3500);
+    return () => clearInterval(cueTimerRef.current);
+  }, [listening, simMode]);
+
+  const toggleRecord = () => setListening(v => !v);
+  const handleStop = () => { setListening(false); setShowReflection(true); };
+
   return (
-    <div className="flex items-center justify-between px-4 md:px-6 py-3 text-[#E5EAF0]">
-      <div className="text-sm tracking-wide font-medium">Empathy Mirror</div>
-      <div className="flex items-center gap-2 text-[#C9D2E3]">
-        <button className="p-2 rounded-md hover:bg-white/5" aria-label="Settings" onClick={onOpenSettings}><Settings size={18} /></button>
-        <button className="p-2 rounded-md hover:bg-white/5" aria-label="Session History" onClick={onOpenHistory}><History size={18} /></button>
-        <button className="p-2 rounded-md hover:bg-white/5" aria-label="Help" onClick={onOpenHelp}><HelpCircle size={18} /></button>
+    <div className="relative min-h-screen bg-[#0A0E1A] text-[#E5EAF0] overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-[#0A0E1A] via-[#0B132B] to-[#0A0E1A]" />
+      <Starfield />
+
+      <TopBar onHelp={() => setShowHelp(v=>!v)} />
+
+      <main className="relative z-10 max-w-6xl mx-auto px-6 pt-6 pb-24 grid grid-cols-[220px_1fr_280px] gap-6">
+        <LeftControls
+          listening={listening}
+          simMode={simMode}
+          setSimMode={setSimMode}
+          cpuThrottle={cpuThrottle}
+          setCpuThrottle={setCpuThrottle}
+          audioOnly={audioOnly}
+          setAudioOnly={setAudioOnly}
+          rulesOnly={rulesOnly}
+          setRulesOnly={setRulesOnly}
+          onRecord={toggleRecord}
+          onPause={() => setListening(false)}
+          onStop={handleStop}
+        />
+
+        <CenterStage
+          listening={listening}
+          audioOnly={audioOnly}
+          videoRef={videoRef}
+          hudCue={hudCue}
+        />
+
+        <RightMetrics
+          medianLatency={medianLatency}
+          talkRatio={talkRatio}
+          acceptPct={acceptPct}
+          setAcceptPct={setAcceptPct}
+        />
+      </main>
+
+      <ReflectionPanel open={showReflection} onClose={() => setShowReflection(false)} />
+      <HelpPanel open={showHelp} onClose={() => setShowHelp(false)} />
+    </div>
+  );
+}
+
+function TopBar({ onHelp }) {
+  return (
+    <div className="relative z-10 w-full px-6 py-3 flex items-center justify-between">
+      <div className="text-sm tracking-wide text-[#C9D3E0]">Empathy Mirror</div>
+      <div className="flex items-center gap-3 text-[#C9D3E0]">
+        <button className="p-2 rounded-md bg-white/5 border border-white/10 hover:bg-white/10" aria-label="Settings"><Settings size={16} /></button>
+        <button className="p-2 rounded-md bg-white/5 border border-white/10 hover:bg-white/10" aria-label="Session History"><History size={16} /></button>
+        <button onClick={onHelp} className="p-2 rounded-md bg-white/5 border border-white/10 hover:bg-white/10" aria-label="Help"><HelpCircle size={16} /></button>
       </div>
     </div>
   );
 }
 
-function ConstellationAvatar({ listening }) {
-  // simple SVG constellation face that pulses when listening
+function LeftControls({ listening, simMode, setSimMode, cpuThrottle, setCpuThrottle, audioOnly, setAudioOnly, rulesOnly, setRulesOnly, onRecord, onPause, onStop }) {
   return (
-    <svg viewBox="0 0 240 180" className="w-40 h-28 opacity-70">
-      <g fill="#89CFF0" fillOpacity="0.6" stroke="#89CFF0" strokeOpacity="0.5">
-        <circle cx="80" cy="70" r={listening ? 4.5 : 3.5} />
-        <circle cx="160" cy="70" r={listening ? 4.5 : 3.5} />
-        <circle cx="120" cy="110" r={listening ? 3.8 : 3} />
-        <polyline points="80,70 120,110 160,70" fill="none" strokeWidth="1.2" />
-      </g>
-    </svg>
+    <aside className="space-y-3">
+      <Panel title="Session">
+        <div className="flex items-center gap-2">
+          <button onClick={onRecord} className={`flex-1 px-3 py-2 rounded-lg border text-sm transition ${listening ? 'bg-[#274690]/40 border-[#89CFF0]/30' : 'bg-[#1E3A8A]/40 border-[#89CFF0]/30'}`}>
+            <div className="flex items-center justify-center gap-2"><Mic size={16} /> {listening ? 'Pause' : 'Record'}</div>
+          </button>
+          <button onClick={onPause} className="px-3 py-2 rounded-lg border text-sm bg-white/5 border-white/10"><Pause size={16} /></button>
+          <button onClick={onStop} className="px-3 py-2 rounded-lg border text-sm bg-white/5 border-white/10"><Square size={16} /></button>
+        </div>
+      </Panel>
+
+      <Panel title="Calibrate">
+        <p className="text-xs text-[#AEB9C6] mb-2">15-second baseline capture — please speak normally.</p>
+        <button className="w-full px-3 py-2 rounded-lg border text-sm bg-white/5 border-white/10">Start 15s Calibration</button>
+      </Panel>
+
+      <Panel title="Simulation & Fallbacks">
+        <label className="flex items-center justify-between text-sm">
+          <span>Simulated signal</span>
+          <input type="checkbox" className="accent-[#89CFF0]" checked={simMode} onChange={e=>setSimMode(e.target.checked)} />
+        </label>
+        <label className="flex items-center justify-between text-sm mt-2">
+          <span>CPU throttle</span>
+          <input type="range" min={0.2} max={1} step={0.05} value={cpuThrottle} onChange={e=>setCpuThrottle(parseFloat(e.target.value))} />
+        </label>
+        <div className="text-xs text-[#AEB9C6] mt-1">CPU stress ~{Math.round((1-cpuThrottle)*100)}% reduction</div>
+        <label className="flex items-center justify-between text-sm mt-3">
+          <span>Audio-only fallback</span>
+          <input type="checkbox" className="accent-[#89CFF0]" checked={audioOnly} onChange={e=>setAudioOnly(e.target.checked)} />
+        </label>
+        <label className="flex items-center justify-between text-sm mt-2">
+          <span>Rules-only coaching</span>
+          <input type="checkbox" className="accent-[#89CFF0]" checked={rulesOnly} onChange={e=>setRulesOnly(e.target.checked)} />
+        </label>
+        <p className="text-[11px] text-[#94A3B8] mt-2">All processing runs locally on your laptop. Rules-only mode provides deterministic guidance if advanced models are unavailable.</p>
+      </Panel>
+    </aside>
   );
 }
 
-function WebcamFrame({ audioOnly, listening }) {
+function CenterStage({ listening, audioOnly, videoRef, hudCue }) {
   return (
-    <div className="relative w-[480px] h-[360px] rounded-2xl overflow-hidden border border-white/10 bg-white/5 backdrop-blur-md">
-      {!audioOnly ? (
-        <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-          {/* Webcam preview placeholder rectangle; in implementation we'd stream video here */}
-          <div className="w-full h-full bg-gradient-to-br from-[#0B132B] to-[#0A0E1A]" />
+    <section className="relative flex items-center justify-center">
+      <div className="relative w-[480px] h-[360px] rounded-2xl overflow-hidden border border-white/10 bg-white/5 backdrop-blur">
+        {!audioOnly ? (
+          <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover opacity-90" />
+        ) : (
+          <AudioOnlyViz />
+        )}
+        <ConstellationAvatar active={listening} />
+        <HUDCue cue={hudCue} />
+      </div>
+    </section>
+  );
+}
+
+function RightMetrics({ medianLatency, talkRatio, acceptPct, setAcceptPct }) {
+  return (
+    <aside className="space-y-3">
+      <Panel title="Live metrics">
+        <Metric label="Pace (syll/min)" value={132} min={90} max={170} goodMin={110} goodMax={150} />
+        <Metric label="Volume (RMS)" value={-18} min={-40} max={0} goodMin={-24} goodMax={-12} suffix=" dB" />
+        <Metric label="Gaze yaw/pitch/roll" value="+4° / -2° / +1°" />
+        <Metric label="Tone heuristic" value="neutral" color="#E5EAF0" />
+        <div className="flex items-center justify-between text-xs mt-2">
+          <span>Median hint latency</span>
+          <span className="text-[#89CFF0]">{Math.round(medianLatency)} ms</span>
         </div>
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <motion.div
-            className="w-36 h-36 rounded-full bg-[#1E3A8A]/30 border border-[#89CFF0]/30"
-            animate={{ boxShadow: audioOnly ? ['0 0 0 0 rgba(137,207,240,0.4)', '0 0 0 20px rgba(137,207,240,0)'] : '0 0 0 0 rgba(0,0,0,0)' }}
-            transition={{ duration: 2.8, repeat: Infinity, ease: 'easeInOut' }}
-          />
+        <div className="flex items-center justify-between text-xs mt-1">
+          <span>Talk ratio</span>
+          <span className="text-[#89CFF0]">{Math.round(talkRatio*100)}%</span>
+        </div>
+        <div className="mt-3">
+          <div className="text-xs mb-1">Cue acceptance</div>
+          <div className="flex items-center gap-2">
+            <button onClick={()=>setAcceptPct(p=>Math.min(1, p + 0.02))} className="px-2 py-1 rounded-md bg-[#1E3A8A]/40 border border-[#89CFF0]/30 text-xs">Accepted</button>
+            <button onClick={()=>setAcceptPct(p=>Math.max(0, p - 0.02))} className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-xs">Rejected</button>
+            <span className="ml-auto text-[#77DD77] text-xs">{Math.round(acceptPct*100)}%</span>
+          </div>
+        </div>
+        <Timeline />
+      </Panel>
+    </aside>
+  );
+}
+
+function Panel({ title, children }) {
+  return (
+    <div className="p-3 rounded-xl bg-white/5 backdrop-blur border border-white/10">
+      <div className="text-[13px] mb-2 text-[#C9D3E0]">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function Metric({ label, value, min, max, goodMin, goodMax, suffix = '' , color}) {
+  const range = typeof min === 'number' && typeof max === 'number';
+  const good = range && typeof goodMin === 'number' && typeof goodMax === 'number';
+  const norm = range ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
+  const goodStart = range && good ? Math.max(0, Math.min(1, (goodMin - min) / (max - min))) : 0.3;
+  const goodEnd = range && good ? Math.max(0, Math.min(1, (goodMax - min) / (max - min))) : 0.7;
+  return (
+    <div className="mb-2">
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span>{label}</span>
+        <span style={{ color: color || '#89CFF0' }}>{typeof value === 'number' ? value.toString() + suffix : value}</span>
+      </div>
+      {range && (
+        <div className="h-2 rounded-full bg-white/10 overflow-hidden relative">
+          <div className="absolute inset-y-0" style={{ left: `${goodStart*100}%`, width: `${(goodEnd-goodStart)*100}%`, background: 'linear-gradient(90deg, rgba(119,221,119,0.25), rgba(137,207,240,0.25))', boxShadow: '0 0 12px rgba(119,221,119,0.25)' }} />
+          <div className="h-full bg-[#89CFF0] transition-all" style={{ width: `${norm*100}%` }} />
         </div>
       )}
+    </div>
+  );
+}
 
-      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-        <motion.div animate={{ opacity: listening ? [0.5, 1, 0.5] : 0.5 }} transition={{ duration: 3, repeat: Infinity }}>
-          <ConstellationAvatar listening={listening} />
-        </motion.div>
+function Timeline() {
+  return (
+    <div className="mt-3">
+      <div className="text-xs mb-1">Cue timeline</div>
+      <div className="h-8 rounded-lg bg-white/5 border border-white/10 flex items-center px-2 gap-2">
+        {[8, 22, 40, 55, 70, 86].map((p, i) => (
+          <div key={i} className="w-1 h-4 rounded bg-[#89CFF0]/60" style={{ marginLeft: `${p}%` }} />
+        ))}
       </div>
     </div>
   );
@@ -59,317 +240,42 @@ function WebcamFrame({ audioOnly, listening }) {
 
 function HUDCue({ cue }) {
   return (
-    <AnimatePresence>
-      {cue && (
-        <motion.div
-          key={cue.id}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.4 }}
-          className="px-4 py-2 rounded-lg bg-[#0B132B]/80 border border-white/10 text-[#E5EAF0] text-sm shadow-lg"
-        >
-          {cue.text}
-          <div className="text-[10px] text-[#B7C2D6] mt-0.5">one hint at a time</div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
-function ControlsColumn({ state, setState }) {
-  const toggle = (key) => setState((s) => ({ ...s, [key]: !s[key] }));
-
-  return (
-    <div className="flex flex-col gap-3 text-[#E5EAF0]">
-      <div className="grid grid-cols-3 gap-2">
-        <button onClick={() => setState((s) => ({ ...s, running: true, paused: false }))} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#274690] hover:bg-[#1E3A8A] border border-white/10"><Play size={16}/> Record</button>
-        <button onClick={() => setState((s) => ({ ...s, paused: !s.paused }))} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10"><Pause size={16}/> Pause</button>
-        <button onClick={() => setState((s) => ({ ...s, running: false, paused: false, showReflection: true }))} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10"><Square size={16}/> Stop</button>
-      </div>
-
-      <button onClick={() => setState((s) => ({ ...s, calibrating: true }))} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10">
-        <span className="flex items-center gap-2"><Gauge size={16}/> Calibrate (15s)</span>
-        <span className="text-[11px] text-[#B7C2D6]">baseline</span>
-      </button>
-
-      <div className="rounded-lg p-3 border border-white/10 bg-white/5 flex items-center justify-between">
-        <div className="flex items-center gap-2"><Rocket size={16}/> Simulate Mode</div>
-        <div className="flex items-center gap-2">
-          <input type="checkbox" checked={state.simulate} onChange={() => toggle('simulate')} aria-label="Toggle Simulate Mode" />
-          <div className="flex items-center gap-1 text-[11px] text-[#B7C2D6]"><Cpu size={14}/> CPU {state.cpu}%</div>
-        </div>
-      </div>
-
-      <div className="rounded-lg p-3 border border-white/10 bg-white/5 flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <div className="text-sm">Throttle</div>
-          <div className="text-[11px] text-[#B7C2D6]">Stress proxy</div>
-        </div>
-        <input type="range" min="10" max="100" value={state.cpu} onChange={(e) => setState((s)=> ({...s, cpu: Number(e.target.value)}))} />
-      </div>
-
-      <div className="rounded-lg p-3 border border-white/10 bg-white/5 flex flex-col gap-2">
-        <label className="flex items-center justify-between cursor-pointer">
-          <span>Quick Fallback</span>
-          <input type="checkbox" checked={state.fallback} onChange={() => toggle('fallback')} aria-label="Toggle Quick Fallback" />
-        </label>
-        <div className="text-[11px] text-[#B7C2D6]">audio-only / rules-only</div>
+    <div className={`absolute left-1/2 -translate-x-1/2 bottom-3 transition-all duration-500 ${cue ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
+      <div className="px-3 py-2 rounded-lg bg-[#0B132B]/70 border border-[#89CFF0]/20 text-sm shadow-[0_0_20px_rgba(137,207,240,0.15)]">
+        {cue?.text || ' '} 
+        <div className="text-[10px] text-[#94A3B8] text-center mt-1">one hint at a time</div>
       </div>
     </div>
   );
 }
 
-function MetricRow({ label, value, zone, detail }) {
-  const good = zone === 'good';
+function ConstellationAvatar({ active }) {
   return (
-    <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-      <div className="flex items-center justify-between text-[#E5EAF0]">
-        <div className="text-sm">{label}</div>
-        <div className={`text-sm ${good ? 'text-[#77DD77]' : 'text-[#89CFF0]'}`}>{value}</div>
-      </div>
-      {detail && <div className="mt-1 text-[11px] text-[#B7C2D6]">{detail}</div>}
-      <div className={`mt-2 h-1.5 rounded-full bg-black/20 relative overflow-hidden`}> 
-        <div className={`absolute inset-y-0 left-1/4 right-1/4 rounded-full ${good ? 'bg-[#77DD77]/40' : 'bg-[#89CFF0]/30'} blur-sm`}></div>
-      </div>
+    <svg className="absolute inset-0 w-full h-full" viewBox="0 0 480 360" aria-hidden>
+      <g className={`transition-opacity ${active ? 'opacity-90' : 'opacity-60'}`}>
+        {[[140,130],[180,120],[240,130],[300,120],[340,130],[220,180],[260,180],[240,220]].map(([x,y],i)=>(
+          <circle key={i} cx={x} cy={y} r={2.2} fill="#89CFF0" className="animate-pulse" style={{ animationDuration: `${2 + (i%3)}s` }} />
+        ))}
+        {[[140,130,180,120],[180,120,240,130],[240,130,300,120],[300,120,340,130],[220,180,260,180],[240,130,220,180],[240,130,260,180],[260,180,240,220],[220,180,240,220]].map((l,i)=>(
+          <line key={i} x1={l[0]} y1={l[1]} x2={l[2]} y2={l[3]} stroke="#89CFF0" strokeOpacity="0.3" />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function AudioOnlyViz() {
+  const [t, setT] = useState(0);
+  useEffect(()=>{
+    const id = setInterval(()=>setT(v=>v+1), 120);
+    return ()=>clearInterval(id);
+  },[]);
+  const bars = new Array(24).fill(0).map((_,i)=> 6 + Math.abs(Math.sin((t+i)*0.3))*20 + Math.random()*6);
+  return (
+    <div className="w-full h-full flex items-end justify-center gap-1 p-6">
+      {bars.map((h,i)=> (
+        <div key={i} className="w-2 rounded-full bg-gradient-to-t from-[#1E3A8A] to-[#89CFF0] shadow-[0_0_12px_rgba(137,207,240,0.25)]" style={{ height: `${h}%`, opacity: 0.7 }} />
+      ))}
     </div>
-  );
-}
-
-function RightMetrics({ state, acceptCue, rejectCue }) {
-  return (
-    <div className="flex flex-col gap-3">
-      <MetricRow label="Pace" value={`${state.pace} spm`} zone={state.paceZone} detail="green-zone centered" />
-      <MetricRow label="Volume" value={`${state.volume} dB`} zone={state.volumeZone} detail="RMS proxy" />
-      <MetricRow label="Gaze" value={`yaw ${state.yaw}° / pitch ${state.pitch}°`} zone={state.gazeZone} detail="roll tracked" />
-      <MetricRow label="Tone" value={state.tone} zone={state.tone === 'neutral' ? 'good' : 'warn'} detail="positivity optional" />
-
-      <div className="p-3 rounded-lg bg-white/5 border border-white/10 text-[#E5EAF0]">
-        <div className="text-sm mb-2">Cue actions</div>
-        <div className="flex items-center gap-2">
-          <button onClick={acceptCue} className="px-3 py-1.5 rounded-md bg-[#1E3A8A] border border-white/10 text-xs flex items-center gap-1"><Check size={14}/> Accepted</button>
-          <button onClick={rejectCue} className="px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs flex items-center gap-1"><X size={14}/> Dismiss</button>
-        </div>
-      </div>
-
-      <div className="p-3 rounded-lg bg-white/5 border border-white/10 text-[#E5EAF0] text-sm">
-        <div>Median hint latency: <span className="text-[#89CFF0]">{state.latency} ms</span></div>
-        <div>Talk ratio: <span className="text-[#89CFF0]">{state.talkRatio}%</span></div>
-        <div className="mt-2 h-8 rounded bg-black/20 relative overflow-hidden">
-          <div className="absolute inset-y-0 left-0 bg-[#89CFF0]/30" style={{ width: `${state.timelinePct}%` }} />
-        </div>
-        <div className="text-[11px] text-[#B7C2D6] mt-1">timeline of cue activity</div>
-      </div>
-    </div>
-  );
-}
-
-function ReflectionDrawer({ open, onClose, state }) {
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} transition={{ duration: 0.35 }} className="fixed left-0 right-0 bottom-0 z-30">
-          <div className="mx-auto max-w-6xl rounded-t-2xl bg-[#0B132B]/95 backdrop-blur-xl border-t border-white/10 p-6 text-[#E5EAF0]">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-sm">Session reflection</div>
-              <button className="px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs" onClick={onClose}>Close</button>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <SummaryCard label="Green-zone %" value={`${state.greenZone}%`} good />
-              <SummaryCard label="Median latency" value={`${state.latency} ms`} />
-              <SummaryCard label="Cue acceptance" value={`${state.acceptance}%`} good />
-              <SummaryCard label="Talk ratio" value={`${state.talkRatio}%`} />
-              <SummaryCard label="Saved" value="SQLite ✓" good />
-            </div>
-            <div className="mt-4 flex items-center justify-between">
-              <div className="text-[11px] text-[#B7C2D6]">Soft metrics visualized with glowing bars</div>
-              <button className="px-3 py-1.5 rounded-md bg-[#1E3A8A] border border-white/10 text-xs">Export Text Summary</button>
-            </div>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
-function SummaryCard({ label, value, good }) {
-  return (
-    <div className="rounded-xl p-3 bg-white/5 border border-white/10">
-      <div className="text-[11px] text-[#B7C2D6]">{label}</div>
-      <div className={`mt-1 text-sm ${good ? 'text-[#77DD77]' : 'text-[#E5EAF0]'}`}>{value}</div>
-      <div className={`mt-2 h-2 rounded-full ${good ? 'bg-[#77DD77]/30' : 'bg-[#89CFF0]/20'} relative overflow-hidden`}>
-        <div className={`absolute inset-y-0 left-0 ${good ? 'bg-[#77DD77]/60' : 'bg-[#89CFF0]/40'}`} style={{ width: '66%' }} />
-      </div>
-    </div>
-  );
-}
-
-function SlideOver({ open, onClose, title, children }) {
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 20, opacity: 0 }} transition={{ duration: 0.3 }} className="fixed top-0 right-0 bottom-0 w-full max-w-md z-40">
-          <div className="h-full bg-[#0B132B]/95 backdrop-blur-xl border-l border-white/10 text-[#E5EAF0] p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm">{title}</div>
-              <button className="px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs" onClick={onClose}>Close</button>
-            </div>
-            <div className="text-xs text-[#C9D2E3]">
-              {children}
-            </div>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
-export default function Workspace() {
-  const [state, setState] = useState({
-    running: false,
-    paused: false,
-    calibrating: false,
-    simulate: true,
-    cpu: 55,
-    fallback: false,
-    audioOnly: false,
-    listening: true,
-    pace: 138,
-    paceZone: 'good',
-    volume: -18,
-    volumeZone: 'good',
-    yaw: 4,
-    pitch: -3,
-    gazeZone: 'good',
-    tone: 'neutral',
-    latency: 320,
-    talkRatio: 62,
-    timelinePct: 40,
-    showReflection: false,
-  });
-
-  const [cue, setCue] = useState(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [countdown, setCountdown] = useState(15);
-
-  // Simulated cues
-  useEffect(() => {
-    if (!state.running || state.paused) return;
-    const i = setInterval(() => {
-      const samples = ['Slow slightly', 'Lower volume a notch', 'Turn toward camera briefly'];
-      const text = samples[Math.floor(Math.random() * samples.length)];
-      setCue({ id: Date.now(), text });
-    }, 4000);
-    return () => clearInterval(i);
-  }, [state.running, state.paused]);
-
-  // Calibration modal countdown
-  useEffect(() => {
-    if (!state.calibrating) return;
-    setCountdown(15);
-    const id = setInterval(() => setCountdown((c) => {
-      if (c <= 1) { clearInterval(id); setState((s)=> ({...s, calibrating: false})); }
-      return Math.max(0, c - 1);
-    }), 1000);
-    return () => clearInterval(id);
-  }, [state.calibrating, setState]);
-
-  const acceptCue = () => {
-    setCue(null);
-    setState((s) => ({ ...s, acceptance: Math.min(100, (s.acceptance || 64) + 1) }));
-  };
-  const rejectCue = () => setCue(null);
-
-  return (
-    <section className="relative min-h-screen overflow-hidden bg-gradient-to-b from-[#0A0E1A] to-[#0B132B]">
-      <StarfieldBackground />
-
-      <div className="relative z-10 mx-auto max-w-6xl px-4 md:px-6 py-4">
-        <TopBar onOpenHelp={() => setHelpOpen(true)} onOpenSettings={() => setSettingsOpen(true)} onOpenHistory={() => setHistoryOpen(true)} />
-
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-[240px,1fr,280px] gap-4 items-start">
-          <ControlsColumn state={state} setState={setState} />
-
-          <div className="flex flex-col items-center gap-4">
-            <WebcamFrame audioOnly={state.audioOnly || state.fallback} listening={state.listening} />
-            <div className="h-10 flex items-center justify-center">
-              <HUDCue cue={cue} />
-            </div>
-            <div className="flex items-center gap-2 text-[#B7C2D6] text-xs">
-              <Camera size={14}/> <span>Camera</span>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input type="checkbox" checked={!state.audioOnly} onChange={(e)=> setState((s)=> ({...s, audioOnly: !e.target.checked}))} aria-label="Toggle camera"/>
-                <span className="text-[11px]">{state.audioOnly ? 'Off' : 'On'}</span>
-              </label>
-              <span className="mx-2 opacity-40">·</span>
-              <Mic size={14}/> <span>Mic</span>
-              <span className="text-[11px]">On</span>
-            </div>
-          </div>
-
-          <RightMetrics state={state} acceptCue={acceptCue} rejectCue={rejectCue} />
-        </div>
-
-        <ReflectionDrawer open={state.showReflection} onClose={() => setState((s)=> ({...s, showReflection:false}))} state={{ ...state, greenZone: 72, acceptance: state.acceptance || 64 }} />
-      </div>
-
-      <SlideOver open={historyOpen} onClose={() => setHistoryOpen(false)} title="Session History">
-        <div className="space-y-2">
-          {[1,2,3].map((i)=> (
-            <div key={i} className="flex items-center gap-3 p-2 rounded-lg bg-white/5 border border-white/10">
-              <div className="w-14 h-10 rounded bg-gradient-to-br from-[#1E3A8A]/40 to-[#274690]/40" />
-              <div>
-                <div className="text-[#E5EAF0]">Session {i}</div>
-                <div className="text-[11px] text-[#B7C2D6]">metrics and cues</div>
-              </div>
-              <div className="ml-auto">
-                <button className="px-2 py-1 rounded bg-white/5 border border-white/10 text-xs" onClick={() => {}}>Open</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </SlideOver>
-
-      <SlideOver open={helpOpen} onClose={() => setHelpOpen(false)} title="Help & Transparency">
-        <ul className="list-disc pl-5 space-y-1">
-          <li>All processing runs locally on your laptop. No media leaves your device.</li>
-          <li>Backend components: FastAPI for routing, onnxruntime for on-device models, MediaPipe for face/gaze, librosa for audio features.</li>
-          <li>Use Simulate Mode to visualize the interface without a camera or mic.</li>
-          <li>Rules-only coaching is available if model control is unavailable.</li>
-        </ul>
-      </SlideOver>
-
-      <SlideOver open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Settings">
-        <div className="space-y-3">
-          <label className="flex items-center justify-between">
-            <span>Rules-only coaching</span>
-            <input type="checkbox" />
-          </label>
-          <div className="p-2 rounded bg-white/5 border border-white/10 text-[11px] text-[#B7C2D6]">
-            If MCP is unavailable, rules-based hints provide gentle guidance.
-          </div>
-        </div>
-      </SlideOver>
-
-      <AnimatePresence>
-        {state.calibrating && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-            <div className="max-w-md w-full rounded-2xl bg-[#0B132B] border border-white/10 p-5 text-[#E5EAF0]">
-              <div className="text-sm mb-1">Calibration</div>
-              <div className="text-xs text-[#B7C2D6] mb-3">15-second baseline capture — please speak normally.</div>
-              <div className="h-24 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
-                <div className="text-3xl font-medium text-[#89CFF0]">{countdown}</div>
-              </div>
-              <div className="text-[11px] text-[#B7C2D6] mt-2">baseline ranges are estimated for pace, volume, gaze</div>
-              <div className="mt-3 flex justify-end">
-                <button className="px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs" onClick={() => setState((s)=> ({...s, calibrating:false}))}>Cancel</button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </section>
   );
 }
